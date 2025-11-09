@@ -79,11 +79,11 @@ func unfold(
     // Add padding if needed
     var paddedInput = input
     if padding.0 > 0 || padding.1 > 0 {
-        let paddingSpec: [(Int, Int)] = [
-            (0, 0),
-            (0, 0),
-            (padding.0, padding.0),
-            (padding.1, padding.1)
+        let paddingSpec: [IntOrPair] = [
+            IntOrPair((0, 0)),
+            IntOrPair((0, 0)),
+            IntOrPair((padding.0, padding.0)),
+            IntOrPair((padding.1, padding.1))
         ]
         paddedInput = padded(input, widths: paddingSpec)
     }
