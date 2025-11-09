@@ -275,6 +275,7 @@ public class Mistral3: Pixtral {
             visionFeatureSelectStrategy: config.visionFeatureSelectStrategy,
             visionFeatureLayer: config.visionFeatureLayer,
             vocabularySize: config.vocabularySize,
+            multimodalProjectorBias: config.multimodalProjectorBias,
             eosTokenId: config.eosTokenId
         )
 

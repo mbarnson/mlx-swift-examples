@@ -85,6 +85,7 @@ public struct PixtralConfiguration: Codable, Sendable {
     public let visionFeatureSelectStrategy: String
     public let visionFeatureLayer: Int
     public let vocabularySize: Int
+    public let multimodalProjectorBias: Bool
     public let eosTokenId: [Int]?
 
     enum CodingKeys: String, CodingKey {
@@ -96,7 +97,49 @@ public struct PixtralConfiguration: Codable, Sendable {
         case visionFeatureSelectStrategy = "vision_feature_select_strategy"
         case visionFeatureLayer = "vision_feature_layer"
         case vocabularySize = "vocab_size"
+        case multimodalProjectorBias = "multimodal_projector_bias"
         case eosTokenId = "eos_token_id"
+    }
+
+    // Memberwise initializer for programmatic construction
+    public init(
+        textConfig: TextConfiguration,
+        visionConfig: VisionConfiguration,
+        modelType: String,
+        ignoreIndex: Int,
+        imageTokenIndex: Int,
+        visionFeatureSelectStrategy: String,
+        visionFeatureLayer: Int,
+        vocabularySize: Int,
+        multimodalProjectorBias: Bool = true,
+        eosTokenId: [Int]? = nil
+    ) {
+        self.textConfig = textConfig
+        self.visionConfig = visionConfig
+        self.modelType = modelType
+        self.ignoreIndex = ignoreIndex
+        self.imageTokenIndex = imageTokenIndex
+        self.visionFeatureSelectStrategy = visionFeatureSelectStrategy
+        self.visionFeatureLayer = visionFeatureLayer
+        self.vocabularySize = vocabularySize
+        self.multimodalProjectorBias = multimodalProjectorBias
+        self.eosTokenId = eosTokenId
+    }
+
+    // Custom decoder with backward compatibility
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        textConfig = try container.decode(TextConfiguration.self, forKey: .textConfig)
+        visionConfig = try container.decode(VisionConfiguration.self, forKey: .visionConfig)
+        modelType = try container.decode(String.self, forKey: .modelType)
+        ignoreIndex = try container.decode(Int.self, forKey: .ignoreIndex)
+        imageTokenIndex = try container.decode(Int.self, forKey: .imageTokenIndex)
+        visionFeatureSelectStrategy = try container.decode(String.self, forKey: .visionFeatureSelectStrategy)
+        visionFeatureLayer = try container.decode(Int.self, forKey: .visionFeatureLayer)
+        vocabularySize = try container.decode(Int.self, forKey: .vocabularySize)
+        // Default to true for backward compatibility with existing Pixtral models
+        multimodalProjectorBias = try container.decodeIfPresent(Bool.self, forKey: .multimodalProjectorBias) ?? true
+        eosTokenId = try container.decodeIfPresent([Int].self, forKey: .eosTokenId)
     }
 }
 
@@ -561,16 +604,18 @@ fileprivate class LlavaMultiModalProjector: Module {
     @ModuleInfo(key: "linear_2") var linear2: Linear
 
     public init(_ config: PixtralConfiguration) {
+        // Follow Mistral's VisionLanguageAdapter pattern: configurable bias
+        let bias = config.multimodalProjectorBias
         self._linear1.wrappedValue = Linear(
             config.visionConfig.hiddenSize,
             config.textConfig.hiddenSize,
-            bias: true
+            bias: bias
         )
         self.gelu = GELU()
         self._linear2.wrappedValue = Linear(
             config.textConfig.hiddenSize,
             config.textConfig.hiddenSize,
-            bias: true
+            bias: bias
         )
     }
 
