@@ -85,7 +85,8 @@ public struct PixtralConfiguration: Codable, Sendable {
     public let visionFeatureSelectStrategy: String
     public let visionFeatureLayer: Int
     public let vocabularySize: Int
-    public let multimodalProjectorBias: Bool
+    // Default to true for backward compatibility with existing Pixtral models
+    public var multimodalProjectorBias: Bool? = nil
     public let eosTokenId: [Int]?
 
     enum CodingKeys: String, CodingKey {
@@ -126,20 +127,9 @@ public struct PixtralConfiguration: Codable, Sendable {
         self.eosTokenId = eosTokenId
     }
 
-    // Custom decoder with backward compatibility
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        textConfig = try container.decode(TextConfiguration.self, forKey: .textConfig)
-        visionConfig = try container.decode(VisionConfiguration.self, forKey: .visionConfig)
-        modelType = try container.decode(String.self, forKey: .modelType)
-        ignoreIndex = try container.decode(Int.self, forKey: .ignoreIndex)
-        imageTokenIndex = try container.decode(Int.self, forKey: .imageTokenIndex)
-        visionFeatureSelectStrategy = try container.decode(String.self, forKey: .visionFeatureSelectStrategy)
-        visionFeatureLayer = try container.decode(Int.self, forKey: .visionFeatureLayer)
-        vocabularySize = try container.decode(Int.self, forKey: .vocabularySize)
-        // Default to true for backward compatibility with existing Pixtral models
-        multimodalProjectorBias = try container.decodeIfPresent(Bool.self, forKey: .multimodalProjectorBias) ?? true
-        eosTokenId = try container.decodeIfPresent([Int].self, forKey: .eosTokenId)
+    // Computed property for bias with backward-compatible default
+    public var effectiveMultimodalProjectorBias: Bool {
+        multimodalProjectorBias ?? true
     }
 }
 
@@ -605,7 +595,7 @@ fileprivate class LlavaMultiModalProjector: Module {
 
     public init(_ config: PixtralConfiguration) {
         // Follow Mistral's VisionLanguageAdapter pattern: configurable bias
-        let bias = config.multimodalProjectorBias
+        let bias = config.effectiveMultimodalProjectorBias
         self._linear1.wrappedValue = Linear(
             config.visionConfig.hiddenSize,
             config.textConfig.hiddenSize,
