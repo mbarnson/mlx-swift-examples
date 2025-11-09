@@ -804,11 +804,72 @@ public class Pixtral: Module, VLMModel, KVCacheDimensionProvider {
 
 public struct PixtralProcessorConfiguration: Codable, Sendable {
     // Processor configuration if needed
+    // Pixtral doesn't require special preprocessing parameters
+    // Images are passed directly to vision tower which handles patching
+    public init() {}
 }
 
+/// Message generator for Pixtral models following mistral-common message protocol
+private class PixtralMessageGenerator: MessageGenerator {
+    func generate(from input: UserInput) -> [Message] {
+        switch input.prompt {
+        case .chat(let messages):
+            // Convert structured Chat.Message to tokenizer format
+            // This matches mistral-common's UserMessage/AssistantMessage protocol
+            return messages.map { message in
+                var dict: [String: Any] = ["role": message.role.rawValue]
+
+                // Handle multimodal content (text + images)
+                if !message.images.isEmpty {
+                    // Multi-part content: text + image placeholders
+                    // Matches mistral-common's ImageURLChunk/TextChunk pattern
+                    var content: [[String: Any]] = []
+
+                    // Add text chunk
+                    if !message.content.isEmpty {
+                        content.append(["type": "text", "text": message.content])
+                    }
+
+                    // Add image placeholders
+                    // The tokenizer's chat template will insert [IMG] tokens
+                    for _ in message.images {
+                        content.append(["type": "image"])
+                    }
+
+                    dict["content"] = content
+                } else {
+                    // Text-only message
+                    dict["content"] = message.content
+                }
+
+                return dict
+            }
+
+        case .text(let text):
+            // Simple text prompt wrapped as user message
+            return [["role": "user", "content": text]]
+
+        case .messages(let messages):
+            // Already in correct format
+            return messages
+        }
+    }
+}
+
+/// Processor for Pixtral vision-language models
+///
+/// Implements the input preprocessing pipeline that aligns with mistral-common's approach:
+/// 1. Message generation (equivalent to UserMessage/AssistantMessage protocol)
+/// 2. Chat template application via tokenizer (CRITICAL mistral-common compatibility point)
+/// 3. Image preprocessing (MLX-specific but semantically equivalent)
+///
+/// References:
+/// - mistral-common: https://github.com/mistralai/mistral-common
+/// - mlx-vlm Pixtral: https://github.com/Blaizzy/mlx-vlm/tree/main/mlx_vlm/models/pixtral
 public class PixtralProcessor: UserInputProcessor {
     private let config: PixtralProcessorConfiguration
     private let tokenizer: any Tokenizer
+    private let messageGenerator: PixtralMessageGenerator
 
     public init(
         _ config: PixtralProcessorConfiguration,
@@ -816,11 +877,58 @@ public class PixtralProcessor: UserInputProcessor {
     ) {
         self.config = config
         self.tokenizer = tokenizer
+        self.messageGenerator = PixtralMessageGenerator()
+    }
+
+    /// Preprocess images for Pixtral vision tower
+    ///
+    /// Pixtral's vision encoder handles most preprocessing internally via Conv2d patch embedding
+    /// We just need to provide images as MLXArrays in the correct format
+    private func preprocessImages(_ images: [UserInput.Image], processing: UserInput.Processing?) throws -> MLXArray {
+        var processedImages: [MLXArray] = []
+
+        for imageInput in images {
+            // Load as CIImage
+            var image = try imageInput.asCIImage()
+
+            // Apply user-requested processing (resize, etc.)
+            image = MediaProcessing.apply(image, processing: processing)
+
+            // Convert to sRGB tone curve space (standard for vision models)
+            image = MediaProcessing.inSRGBToneCurveSpace(image)
+
+            // Convert to MLXArray [1, C, H, W]
+            // Pixtral vision tower expects this format
+            let array = MediaProcessing.asMLXArray(image)
+            processedImages.append(array)
+        }
+
+        // Concatenate along batch dimension
+        return concatenated(processedImages, axis: 0)
     }
 
     public func prepare(input: UserInput) async throws -> LMInput {
-        // Basic processor - delegates to default behavior
-        // In production, would handle Pixtral-specific image preprocessing
-        fatalError("PixtralProcessor not yet implemented - use default processor")
+        // 1. Generate messages in mistral-common compatible format
+        // This is the critical compatibility point with mistral-common's message protocol
+        let messages = messageGenerator.generate(from: input)
+
+        // 2. Apply chat template using tokenizer
+        // THIS IS THE KEY STEP for mistral-common compatibility
+        // The tokenizer's applyChatTemplate() uses the same Jinja templates that
+        // mistral-common uses, ensuring identical tokenization and special token handling
+        var promptTokens = try tokenizer.applyChatTemplate(
+            messages: messages,
+            tools: input.tools,
+            additionalContext: input.additionalContext
+        )
+
+        // 3. Handle images if present
+        if !input.images.isEmpty {
+            let pixelValues = try preprocessImages(input.images, processing: input.processing)
+            return LMInput(tokens: MLXArray(promptTokens), image: pixelValues)
+        }
+
+        // Text-only input
+        return LMInput(tokens: MLXArray(promptTokens))
     }
 }

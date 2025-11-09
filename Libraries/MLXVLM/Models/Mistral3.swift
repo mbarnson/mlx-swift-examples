@@ -319,11 +319,31 @@ public class Mistral3: Pixtral {
 
 public struct Mistral3ProcessorConfiguration: Codable, Sendable {
     // Processor configuration if needed
+    // Mistral3 inherits Pixtral's preprocessing but adds image size tracking
+    public init() {}
 }
 
+/// Processor for Mistral3 vision-language models
+///
+/// Extends Pixtral processor with additional image size tracking for spatial patch merging.
+/// Mistral3 uses 2x2 spatial merging to reduce token count (4x fewer tokens than Pixtral).
+///
+/// Key differences from Pixtral:
+/// - Tracks original image dimensions (height, width) for each image
+/// - Passes image_sizes to model for patch merging computation
+/// - Otherwise identical message generation and chat template application
+///
+/// mistral-common compatibility:
+/// - Uses same message protocol and chat template application as Pixtral
+/// - Image size tracking is model-specific, not part of mistral-common
+///
+/// References:
+/// - mistral-common: https://github.com/mistralai/mistral-common
+/// - mlx-vlm Mistral3: https://github.com/Blaizzy/mlx-vlm/tree/main/mlx_vlm/models/mistral3
 public class Mistral3Processor: UserInputProcessor {
     private let config: Mistral3ProcessorConfiguration
     private let tokenizer: any Tokenizer
+    private let messageGenerator: PixtralMessageGenerator
 
     public init(
         _ config: Mistral3ProcessorConfiguration,
@@ -331,11 +351,78 @@ public class Mistral3Processor: UserInputProcessor {
     ) {
         self.config = config
         self.tokenizer = tokenizer
+        // Reuse Pixtral's message generator - message format is identical
+        self.messageGenerator = PixtralMessageGenerator()
+    }
+
+    /// Preprocess images and track their sizes for Mistral3 spatial merging
+    ///
+    /// Returns:
+    /// - pixelValues: MLXArray [N, C, H, W] concatenated images
+    /// - imageSizes: MLXArray [N, 2] with (height, width) for each image
+    private func preprocessImagesWithSizes(_ images: [UserInput.Image], processing: UserInput.Processing?) throws -> (pixelValues: MLXArray, imageSizes: MLXArray) {
+        var processedImages: [MLXArray] = []
+        var sizes: [(Int, Int)] = []
+
+        for imageInput in images {
+            // Load as CIImage
+            var image = try imageInput.asCIImage()
+
+            // Apply user-requested processing (resize, etc.)
+            image = MediaProcessing.apply(image, processing: processing)
+
+            // Track size BEFORE final processing
+            // Mistral3 needs original dimensions for patch merging
+            let extent = image.extent
+            let height = Int(extent.height)
+            let width = Int(extent.width)
+            sizes.append((height, width))
+
+            // Convert to sRGB tone curve space
+            image = MediaProcessing.inSRGBToneCurveSpace(image)
+
+            // Convert to MLXArray [1, C, H, W]
+            let array = MediaProcessing.asMLXArray(image)
+            processedImages.append(array)
+        }
+
+        // Concatenate images along batch dimension
+        let pixelValues = concatenated(processedImages, axis: 0)
+
+        // Create image_sizes array [[h1, w1], [h2, w2], ...]
+        // Shape: [N, 2] where N is number of images
+        let imageSizesArray = MLXArray(sizes.flatMap { [$0.0, $0.1] }, [sizes.count, 2])
+
+        return (pixelValues, imageSizesArray)
     }
 
     public func prepare(input: UserInput) async throws -> LMInput {
-        // Basic processor - delegates to default behavior
-        // In production, would handle Mistral3-specific image preprocessing
-        fatalError("Mistral3Processor not yet implemented - use default processor")
+        // 1. Generate messages in mistral-common compatible format
+        // Reuses Pixtral's message generation - format is identical
+        let messages = messageGenerator.generate(from: input)
+
+        // 2. Apply chat template using tokenizer
+        // THIS IS THE KEY STEP for mistral-common compatibility
+        // Identical to Pixtral - same Jinja templates, same special token handling
+        let promptTokens = try tokenizer.applyChatTemplate(
+            messages: messages,
+            tools: input.tools,
+            additionalContext: input.additionalContext
+        )
+
+        // 3. Handle images if present
+        if !input.images.isEmpty {
+            // Mistral3-specific: track image sizes for spatial merging
+            let (pixelValues, imageSizes) = try preprocessImagesWithSizes(input.images, processing: input.processing)
+
+            return LMInput(
+                tokens: MLXArray(promptTokens),
+                image: pixelValues,
+                imageSizes: imageSizes
+            )
+        }
+
+        // Text-only input
+        return LMInput(tokens: MLXArray(promptTokens))
     }
 }
