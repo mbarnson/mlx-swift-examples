@@ -758,16 +758,8 @@ public class Pixtral: Module, VLMModel, KVCacheDimensionProvider {
             }
         }
 
-        // Transform language model keys by stripping "language_model." prefix
-        // Python checkpoint: language_model.model.layers.0.self_attn.q_proj.weight
-        // Swift expects: model.layers.0.self_attn.q_proj.weight
-        for (key, value) in weights {
-            guard key.hasPrefix("language_model.") else { continue }
-
-            let newKey = String(key.dropFirst("language_model.".count))
-            sanitized[newKey] = value
-            sanitized.removeValue(forKey: key)
-        }
+        // Note: language_model.* keys should NOT be transformed
+        // The @ModuleInfo(key: "language_model") decorator expects this prefix
 
         return sanitized
     }
