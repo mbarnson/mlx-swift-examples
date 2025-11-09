@@ -102,7 +102,7 @@ public struct PixtralConfiguration: Codable, Sendable {
 
 // MARK: - Vision Encoder
 
-private enum Vision {
+fileprivate enum Vision {
 
     /// Check if the array has the expected shape for conv weights
     static func checkArrayShape(_ arr: MLXArray) -> Bool {
@@ -370,7 +370,7 @@ private enum Vision {
 
 // MARK: - Language Model
 
-private enum Language {
+fileprivate enum Language {
 
     fileprivate class Attention: Module {
         let heads: Int
