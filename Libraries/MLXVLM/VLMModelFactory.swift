@@ -92,6 +92,8 @@ public class VLMTypeRegistry: ModelTypeRegistry, @unchecked Sendable {
             // TODO: see if we can make it work with fastvlm rather than llava_qwen2
             "fastvlm": create(FastVLMConfiguration.self, FastVLM.init),
             "llava_qwen2": create(FastVLMConfiguration.self, FastVLM.init),
+            "pixtral": create(PixtralConfiguration.self, Pixtral.init),
+            "mistral3": create(Mistral3Configuration.self, Mistral3.init),
         ]
     }
 }
@@ -123,6 +125,10 @@ public class VLMProcessorTypeRegistry: ProcessorTypeRegistry, @unchecked Sendabl
                 SmolVLMProcessorConfiguration.self, SmolVLMProcessor.init),
             "FastVLMProcessor": create(
                 FastVLMProcessorConfiguration.self, FastVLMProcessor.init),
+            "PixtralProcessor": create(
+                PixtralProcessorConfiguration.self, PixtralProcessor.init),
+            "Mistral3Processor": create(
+                Mistral3ProcessorConfiguration.self, Mistral3Processor.init),
         ]
     }
 }
