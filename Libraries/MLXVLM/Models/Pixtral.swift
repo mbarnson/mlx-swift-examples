@@ -695,6 +695,29 @@ public class Pixtral: Module, VLMModel, KVCacheDimensionProvider {
         return concatenated(finalEmbeddings, axis: 1)
     }
 
+    public func prepare(_ input: LMInput, cache: [any KVCache], windowSize: Int?) throws -> PrepareResult {
+        // Get vision model dtype for type consistency
+        let dtype = visionTower.visionModel.patchConv.weight.dtype
+
+        // Extract pixel values if present
+        var pixelValues: [MLXArray]? = nil
+        if let imagePixels = input.image?.pixels {
+            pixelValues = [imagePixels.asType(dtype)]
+        }
+
+        // Get input embeddings (handles both text-only and multimodal cases)
+        let inputEmbeddings = getInputEmbeddings(
+            inputIds: input.text.tokens[0],
+            pixelValues: pixelValues,
+            imageSizes: nil
+        )
+
+        // Forward through language model
+        let result = languageModel(nil, cache: cache, inputEmbedding: inputEmbeddings.expandedDimensions(axis: 0))
+
+        return .logits(result)
+    }
+
     public func callAsFunction(
         _ inputs: MLXArray,
         cache: [KVCache]?,
