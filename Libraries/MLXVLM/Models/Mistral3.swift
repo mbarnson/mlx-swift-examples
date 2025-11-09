@@ -261,7 +261,7 @@ fileprivate class Mistral3MultiModalProjector: Module {
 
 public class Mistral3: Pixtral {
 
-    fileprivate let mistral3MultiModalProjector: Mistral3MultiModalProjector
+    @ModuleInfo(key: "multi_modal_projector") var multiModalProjector: Mistral3MultiModalProjector
     fileprivate let mistral3Config: Mistral3Configuration
 
     public init(_ config: Mistral3Configuration) {
@@ -279,7 +279,7 @@ public class Mistral3: Pixtral {
         )
 
         self.mistral3Config = config
-        self.mistral3MultiModalProjector = Mistral3MultiModalProjector(config)
+        self._multiModalProjector.wrappedValue = Mistral3MultiModalProjector(config)
 
         super.init(pixtralConfig)
     }
@@ -302,7 +302,7 @@ public class Mistral3: Pixtral {
         let selectedImageFeature = hiddenStates[visionFeatureLayer]
 
         // Use Mistral3's multimodal projector (with patch merging)
-        let imageFeatures = mistral3MultiModalProjector(selectedImageFeature, imageSizes: imageSizes)
+        let imageFeatures = multiModalProjector(selectedImageFeature, imageSizes: imageSizes)
 
         // Merge vision and text embeddings
         return Pixtral.mergeInputIdsWithImageFeatures(
