@@ -77,7 +77,7 @@ func unfold(
     let width = input.dim(3)
 
     // Add padding if needed
-    var padded = input
+    var paddedInput = input
     if padding.0 > 0 || padding.1 > 0 {
         let paddingSpec: [(Int, Int)] = [
             (0, 0),
@@ -85,7 +85,7 @@ func unfold(
             (padding.0, padding.0),
             (padding.1, padding.1)
         ]
-        padded = pad(input, widths: paddingSpec)
+        paddedInput = padded(input, widths: paddingSpec)
     }
 
     // Calculate output dimensions
@@ -108,7 +108,7 @@ func unfold(
                     let hIdx = i + di * dilation.0
                     let wIdx = j + dj * dilation.1
                     // Get the block for all channels
-                    block.append(padded[0..., 0..., hIdx, wIdx])
+                    block.append(paddedInput[0..., 0..., hIdx, wIdx])
                 }
             }
 
