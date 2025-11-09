@@ -270,7 +270,7 @@ fileprivate enum Vision {
 
     fileprivate class VisionEncoderLayer: Module {
         @ModuleInfo(key: "self_attn") var selfAttn: Attention
-        let mlp: MLP
+        @ModuleInfo var mlp: MLP
         @ModuleInfo(key: "input_layernorm") var inputLayernorm: RMSNorm
         @ModuleInfo(key: "post_attention_layernorm") var postAttentionLayernorm: RMSNorm
 
@@ -279,7 +279,7 @@ fileprivate enum Vision {
                 dims: args.hiddenSize,
                 numHeads: args.attentionHeads
             )
-            self.mlp = MLP(dimensions: args.hiddenSize, hiddenDimensions: args.intermediateSize)
+            self._mlp.wrappedValue = MLP(dimensions: args.hiddenSize, hiddenDimensions: args.intermediateSize)
             self._inputLayernorm.wrappedValue = RMSNorm(dimensions: args.hiddenSize, eps: args.rmsNormEps)
             self._postAttentionLayernorm.wrappedValue = RMSNorm(dimensions: args.hiddenSize, eps: args.rmsNormEps)
         }
@@ -730,14 +730,31 @@ public class Pixtral: Module, VLMModel, KVCacheDimensionProvider {
     public func sanitize(weights: [String: MLXArray]) -> [String: MLXArray] {
         var sanitized = weights
 
-        // Transform keys as needed for vision tower
+        // Transform keys to match Swift implementation structure
         for (key, value) in weights {
-            if key.contains("vision_tower") && !key.contains("vision_model") {
+            guard key.contains("vision_tower") else { continue }
+
+            var newKey = key
+
+            // Add .vision_model wrapper if missing (for older checkpoints)
+            if !key.contains("vision_model") {
                 if key.contains("transformer") || key.contains("patch_conv") || key.contains("ln_pre") {
-                    let newKey = key.replacingOccurrences(of: "vision_tower", with: "vision_tower.vision_model")
-                    sanitized[newKey] = value
-                    sanitized.removeValue(forKey: key)
+                    newKey = newKey.replacingOccurrences(of: "vision_tower", with: "vision_tower.vision_model")
                 }
+            }
+
+            // Remove .transformer wrapper (Python has Encoder wrapper, Swift doesn't)
+            newKey = newKey.replacingOccurrences(of: ".transformer.layers.", with: ".layers.")
+
+            // Rename layer components to match Swift naming
+            newKey = newKey.replacingOccurrences(of: ".attention.", with: ".self_attn.")
+            newKey = newKey.replacingOccurrences(of: ".attention_norm.", with: ".input_layernorm.")
+            newKey = newKey.replacingOccurrences(of: ".feed_forward.", with: ".mlp.")
+            newKey = newKey.replacingOccurrences(of: ".ffn_norm.", with: ".post_attention_layernorm.")
+
+            if newKey != key {
+                sanitized[newKey] = value
+                sanitized.removeValue(forKey: key)
             }
         }
 
