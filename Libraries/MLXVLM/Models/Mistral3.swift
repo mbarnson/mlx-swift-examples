@@ -137,7 +137,7 @@ func unfold(
 
 // MARK: - Mistral3 Components
 
-fileprivate class Mistral3PatchMerger: Module {
+internal class Mistral3PatchMerger: Module {
     let spatialMergeSize: Int
     let patchSize: Int
 
@@ -213,7 +213,7 @@ fileprivate class Mistral3PatchMerger: Module {
     }
 }
 
-fileprivate class Mistral3MultiModalProjector: Module {
+internal class Mistral3MultiModalProjector: Module {
     @ModuleInfo var norm: RMSNorm
     let patchMerger: Mistral3PatchMerger
     @ModuleInfo(key: "linear_1") var linear1: Linear
