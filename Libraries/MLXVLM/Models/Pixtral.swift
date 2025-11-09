@@ -579,11 +579,11 @@ fileprivate class LlavaMultiModalProjector: Module {
     }
 }
 
-public class Pixtral: Module, VLMModel, LanguageModel, KVCacheDimensionProvider {
+public class Pixtral: Module, VLMModel, KVCacheDimensionProvider {
 
-    @ModuleInfo(key: "vision_tower") fileprivate var visionTower: Vision.VisionModel
-    @ModuleInfo(key: "language_model") fileprivate var languageModel: Language.LanguageModel
-    @ModuleInfo(key: "multi_modal_projector") fileprivate var multiModalProjector: LlavaMultiModalProjector
+    @ModuleInfo(key: "vision_tower") internal var visionTower: Vision.VisionModel
+    @ModuleInfo(key: "language_model") internal var languageModel: Language.LanguageModel
+    @ModuleInfo(key: "multi_modal_projector") internal var multiModalProjector: LlavaMultiModalProjector
 
     public let config: PixtralConfiguration
     let visionFeatureLayer: Int
@@ -607,9 +607,10 @@ public class Pixtral: Module, VLMModel, LanguageModel, KVCacheDimensionProvider 
         self._multiModalProjector.wrappedValue = LlavaMultiModalProjector(config)
     }
 
-    fileprivate func getInputEmbeddings(
+    internal func getInputEmbeddings(
         inputIds: MLXArray? = nil,
-        pixelValues: [MLXArray]? = nil
+        pixelValues: [MLXArray]? = nil,
+        imageSizes: MLXArray? = nil
     ) -> MLXArray {
         guard let pixelValues = pixelValues else {
             return languageModel.model.embedTokens(inputIds!)
@@ -711,7 +712,18 @@ public struct PixtralProcessorConfiguration: Codable, Sendable {
     // Processor configuration if needed
 }
 
-public struct PixtralProcessor: UserInputProcessor {
+public class PixtralProcessor: UserInputProcessor {
+    private let config: PixtralProcessorConfiguration
+    private let tokenizer: any Tokenizer
+
+    public init(
+        _ config: PixtralProcessorConfiguration,
+        tokenizer: any Tokenizer
+    ) {
+        self.config = config
+        self.tokenizer = tokenizer
+    }
+
     public func prepare(input: UserInput) async throws -> LMInput {
         // Basic processor - delegates to default behavior
         // In production, would handle Pixtral-specific image preprocessing

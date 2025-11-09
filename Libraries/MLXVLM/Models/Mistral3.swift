@@ -261,8 +261,8 @@ fileprivate class Mistral3MultiModalProjector: Module {
 
 public class Mistral3: Pixtral {
 
-    let mistral3MultiModalProjector: Mistral3MultiModalProjector
-    let mistral3Config: Mistral3Configuration
+    fileprivate let mistral3MultiModalProjector: Mistral3MultiModalProjector
+    fileprivate let mistral3Config: Mistral3Configuration
 
     public init(_ config: Mistral3Configuration) {
         // Create Pixtral configuration from Mistral3 config
@@ -320,7 +320,18 @@ public struct Mistral3ProcessorConfiguration: Codable, Sendable {
     // Processor configuration if needed
 }
 
-public struct Mistral3Processor: UserInputProcessor {
+public class Mistral3Processor: UserInputProcessor {
+    private let config: Mistral3ProcessorConfiguration
+    private let tokenizer: any Tokenizer
+
+    public init(
+        _ config: Mistral3ProcessorConfiguration,
+        tokenizer: any Tokenizer
+    ) {
+        self.config = config
+        self.tokenizer = tokenizer
+    }
+
     public func prepare(input: UserInput) async throws -> LMInput {
         // Basic processor - delegates to default behavior
         // In production, would handle Mistral3-specific image preprocessing
