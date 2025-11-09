@@ -152,7 +152,8 @@ fileprivate enum Vision {
         let seqLen = tensor.dim(1)
         let dMin: Float = -1e9
 
-        var causalMask = MLXArray(repeating: dMin, [seqLen, seqLen])
+        // Create a matrix filled with dMin (equivalent to mx.full in Python)
+        var causalMask = MLXArray.zeros([seqLen, seqLen]) + dMin
 
         let blockEndIdx = MLXArray(patchEmbedsList).cumsum()
         var blockStartIdx = MLXArray([0] + Array(patchEmbedsList.dropLast()))
@@ -165,8 +166,8 @@ fileprivate enum Vision {
         }
 
         let batchSize = tensor.dim(0)
-        return causalMask.expandedDimensions(axes: [0, 1])
-            .broadcast(to: [batchSize, 1, seqLen, seqLen])
+        let expanded = causalMask.expandedDimensions(axes: [0, 1])
+        return broadcast(expanded, to: [batchSize, 1, seqLen, seqLen])
             .asType(tensor.dtype)
     }
 
@@ -305,9 +306,9 @@ fileprivate enum Vision {
             self._patchConv.wrappedValue = Conv2d(
                 inputChannels: args.numChannels,
                 outputChannels: args.hiddenSize,
-                kernelSize: .init(width: args.patchSize, height: args.patchSize),
-                stride: .init(width: args.patchSize, height: args.patchSize),
-                padding: .init(width: 0, height: 0),
+                kernelSize: IntOrPair(args.patchSize),
+                stride: IntOrPair(args.patchSize),
+                padding: IntOrPair(0),
                 bias: false
             )
 
@@ -327,7 +328,9 @@ fileprivate enum Vision {
 
             // Process each image through conv
             for pixelValues in x {
-                var patchEmbeds = patchConv(pixelValues).reshaped(-1, patchConv.outputChannels)
+                // Get output channels from weight shape (first dimension)
+                let outputChannels = patchConv.weight.dim(0)
+                var patchEmbeds = patchConv(pixelValues).reshaped(-1, outputChannels)
                 patchEmbeds = lnPre(patchEmbeds)
                 hiddenStates.append(patchEmbeds)
             }
@@ -398,13 +401,13 @@ fileprivate enum Language {
             self._wv.wrappedValue = Linear(dim, kvHeads * headDim, bias: false)
             self._wo.wrappedValue = Linear(heads * headDim, dim, bias: false)
 
-            let ropeScale = if let ropeScaling = args.ropeScaling,
+            let ropeScale: Float = if let ropeScaling = args.ropeScaling,
                              let type = ropeScaling["type"]?.asString(),
                              type == "linear",
                              let factor = ropeScaling["factor"]?.asFloat() {
-                1.0 / factor
+                Float(1.0) / factor
             } else {
-                1.0
+                Float(1.0)
             }
 
             self._rope.wrappedValue = RoPE(
@@ -581,9 +584,9 @@ fileprivate class LlavaMultiModalProjector: Module {
 
 public class Pixtral: Module, VLMModel, KVCacheDimensionProvider {
 
-    @ModuleInfo(key: "vision_tower") internal var visionTower: Vision.VisionModel
-    @ModuleInfo(key: "language_model") internal var languageModel: Language.LanguageModel
-    @ModuleInfo(key: "multi_modal_projector") internal var multiModalProjector: LlavaMultiModalProjector
+    @ModuleInfo(key: "vision_tower") fileprivate var visionTower: Vision.VisionModel
+    @ModuleInfo(key: "language_model") fileprivate var languageModel: Language.LanguageModel
+    @ModuleInfo(key: "multi_modal_projector") fileprivate var multiModalProjector: LlavaMultiModalProjector
 
     public let config: PixtralConfiguration
     let visionFeatureLayer: Int
@@ -595,6 +598,10 @@ public class Pixtral: Module, VLMModel, KVCacheDimensionProvider {
 
     public var kvHeads: [Int] {
         languageModel.kvHeads
+    }
+
+    public var loraLayers: [Module] {
+        languageModel.model.layers
     }
 
     public init(_ config: PixtralConfiguration) {
@@ -636,7 +643,7 @@ public class Pixtral: Module, VLMModel, KVCacheDimensionProvider {
         let imageFeatures = multiModalProjector(selectedImageFeature)
 
         // Merge vision and text embeddings
-        return mergeInputIdsWithImageFeatures(
+        return Pixtral.mergeInputIdsWithImageFeatures(
             imageTokenIndex: config.imageTokenIndex,
             imageFeatures: imageFeatures,
             inputsEmbeds: inputsEmbeds,

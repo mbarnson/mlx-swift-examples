@@ -101,4 +101,16 @@ public enum StringOrNumber: Codable, Equatable, Sendable {
         case .bool(let bool): bool ? 1.0 : 0.0
         }
     }
+
+    /// Return the value as an optional string.
+    public func asString() -> String? {
+        switch self {
+        case .string(let string): string
+        case .int(let v): String(v)
+        case .float(let float): String(float)
+        case .ints(let array): nil
+        case .floats(let array): nil
+        case .bool(let bool): String(bool)
+        }
+    }
 }
