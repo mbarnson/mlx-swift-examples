@@ -734,17 +734,27 @@ public class Pixtral: Module, VLMModel, KVCacheDimensionProvider {
         // Get vision model dtype for type consistency
         let dtype = visionTower.visionModel.patchConv.weight.dtype
 
-        // Extract pixel values if present
+        // Extract pixel values and image sizes if present
         var pixelValues: [MLXArray]? = nil
-        if let imagePixels = input.image?.pixels {
-            pixelValues = [imagePixels.asType(dtype)]
+        var imageSizes: MLXArray? = nil
+
+        if let imageData = input.image {
+            pixelValues = [imageData.pixels.asType(dtype)]
+
+            // Extract image sizes from frames (for Mistral3 spatial merging)
+            // frames contains [THW(1, height, width), ...] for each image
+            if let frames = imageData.frames {
+                // Convert THW to [height, width] pairs
+                let sizesPairs = frames.map { [$0.h, $0.w] }.flatMap { $0 }
+                imageSizes = MLXArray(sizesPairs, [frames.count, 2])
+            }
         }
 
         // Get input embeddings (handles both text-only and multimodal cases)
         let inputEmbeddings = getInputEmbeddings(
             inputIds: input.text.tokens[0],
             pixelValues: pixelValues,
-            imageSizes: nil
+            imageSizes: imageSizes
         )
 
         // Forward through language model
@@ -810,8 +820,12 @@ public struct PixtralProcessorConfiguration: Codable, Sendable {
 }
 
 /// Message generator for Pixtral models following mistral-common message protocol
-private class PixtralMessageGenerator: MessageGenerator {
-    func generate(from input: UserInput) -> [Message] {
+///
+/// Made public so it can be tested and reused (e.g., by Mistral3Processor)
+public class PixtralMessageGenerator: MessageGenerator {
+    public init() {}
+
+    public func generate(from input: UserInput) -> [Message] {
         switch input.prompt {
         case .chat(let messages):
             // Convert structured Chat.Message to tokenizer format
@@ -825,10 +839,8 @@ private class PixtralMessageGenerator: MessageGenerator {
                     // Matches mistral-common's ImageURLChunk/TextChunk pattern
                     var content: [[String: Any]] = []
 
-                    // Add text chunk
-                    if !message.content.isEmpty {
-                        content.append(["type": "text", "text": message.content])
-                    }
+                    // Add text chunk (always, even if empty - mistral-common behavior)
+                    content.append(["type": "text", "text": message.content])
 
                     // Add image placeholders
                     // The tokenizer's chat template will insert [IMG] tokens
@@ -925,7 +937,10 @@ public class PixtralProcessor: UserInputProcessor {
         // 3. Handle images if present
         if !input.images.isEmpty {
             let pixelValues = try preprocessImages(input.images, processing: input.processing)
-            return LMInput(tokens: MLXArray(promptTokens), image: pixelValues)
+            return LMInput(
+                text: .init(tokens: MLXArray(promptTokens)),
+                image: .init(pixels: pixelValues)
+            )
         }
 
         // Text-only input

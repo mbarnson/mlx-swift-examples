@@ -313,6 +313,10 @@ public class Mistral3: Pixtral {
             inputIds: inputIds!
         )
     }
+
+    // Note: prepare() is inherited from Pixtral
+    // Pixtral's prepare() now extracts imageSizes from LMInput.ProcessedImage.frames
+    // and passes them to getInputEmbeddings(), so Mistral3 works automatically
 }
 
 // MARK: - Processor
@@ -359,10 +363,10 @@ public class Mistral3Processor: UserInputProcessor {
     ///
     /// Returns:
     /// - pixelValues: MLXArray [N, C, H, W] concatenated images
-    /// - imageSizes: MLXArray [N, 2] with (height, width) for each image
-    private func preprocessImagesWithSizes(_ images: [UserInput.Image], processing: UserInput.Processing?) throws -> (pixelValues: MLXArray, imageSizes: MLXArray) {
+    /// - frames: [THW] with (1, height, width) for each image (time=1 for images)
+    private func preprocessImagesWithSizes(_ images: [UserInput.Image], processing: UserInput.Processing?) throws -> (pixelValues: MLXArray, frames: [THW]) {
         var processedImages: [MLXArray] = []
-        var sizes: [(Int, Int)] = []
+        var frames: [THW] = []
 
         for imageInput in images {
             // Load as CIImage
@@ -376,7 +380,7 @@ public class Mistral3Processor: UserInputProcessor {
             let extent = image.extent
             let height = Int(extent.height)
             let width = Int(extent.width)
-            sizes.append((height, width))
+            frames.append(THW(1, height, width))  // t=1 for images (not video)
 
             // Convert to sRGB tone curve space
             image = MediaProcessing.inSRGBToneCurveSpace(image)
@@ -389,11 +393,7 @@ public class Mistral3Processor: UserInputProcessor {
         // Concatenate images along batch dimension
         let pixelValues = concatenated(processedImages, axis: 0)
 
-        // Create image_sizes array [[h1, w1], [h2, w2], ...]
-        // Shape: [N, 2] where N is number of images
-        let imageSizesArray = MLXArray(sizes.flatMap { [$0.0, $0.1] }, [sizes.count, 2])
-
-        return (pixelValues, imageSizesArray)
+        return (pixelValues, frames)
     }
 
     public func prepare(input: UserInput) async throws -> LMInput {
@@ -413,12 +413,11 @@ public class Mistral3Processor: UserInputProcessor {
         // 3. Handle images if present
         if !input.images.isEmpty {
             // Mistral3-specific: track image sizes for spatial merging
-            let (pixelValues, imageSizes) = try preprocessImagesWithSizes(input.images, processing: input.processing)
+            let (pixelValues, frames) = try preprocessImagesWithSizes(input.images, processing: input.processing)
 
             return LMInput(
-                tokens: MLXArray(promptTokens),
-                image: pixelValues,
-                imageSizes: imageSizes
+                text: .init(tokens: MLXArray(promptTokens)),
+                image: .init(pixels: pixelValues, frames: frames)
             )
         }
 
