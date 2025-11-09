@@ -607,6 +607,15 @@ public class Pixtral: Module, VLMModel, KVCacheDimensionProvider {
         self._multiModalProjector.wrappedValue = LlavaMultiModalProjector(config)
     }
 
+    // Helper methods for subclasses to access embeddings
+    internal func getTextEmbeddings(_ inputIds: MLXArray) -> MLXArray {
+        return languageModel.model.embedTokens(inputIds)
+    }
+
+    internal func getVisionHiddenStates(_ pixelValues: [MLXArray]) -> [MLXArray] {
+        return visionTower(pixelValues, outputHiddenStates: true)
+    }
+
     internal func getInputEmbeddings(
         inputIds: MLXArray? = nil,
         pixelValues: [MLXArray]? = nil,

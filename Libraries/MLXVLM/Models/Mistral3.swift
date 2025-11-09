@@ -85,7 +85,7 @@ func unfold(
             (padding.0, padding.0),
             (padding.1, padding.1)
         ]
-        padded = MLX.pad(input, widths: paddingSpec)
+        padded = pad(input, widths: paddingSpec)
     }
 
     // Calculate output dimensions
@@ -291,14 +291,14 @@ public class Mistral3: Pixtral {
         imageSizes: MLXArray? = nil
     ) -> MLXArray {
         guard let pixelValues = pixelValues, let imageSizes = imageSizes else {
-            return languageModel.model.embedTokens(inputIds!)
+            return getTextEmbeddings(inputIds!)
         }
 
         // Get text embeddings
-        let inputsEmbeds = languageModel.model.embedTokens(inputIds!)
+        let inputsEmbeds = getTextEmbeddings(inputIds!)
 
         // Get vision embeddings
-        let hiddenStates = visionTower(pixelValues, outputHiddenStates: true)
+        let hiddenStates = getVisionHiddenStates(pixelValues)
         let selectedImageFeature = hiddenStates[visionFeatureLayer]
 
         // Use Mistral3's multimodal projector (with patch merging)
