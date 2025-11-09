@@ -730,7 +730,7 @@ public class Pixtral: Module, VLMModel, KVCacheDimensionProvider {
     public func sanitize(weights: [String: MLXArray]) -> [String: MLXArray] {
         var sanitized = weights
 
-        // Transform keys to match Swift implementation structure
+        // Transform vision tower keys to match Swift implementation structure
         for (key, value) in weights {
             guard key.contains("vision_tower") else { continue }
 
@@ -756,6 +756,17 @@ public class Pixtral: Module, VLMModel, KVCacheDimensionProvider {
                 sanitized[newKey] = value
                 sanitized.removeValue(forKey: key)
             }
+        }
+
+        // Transform language model keys by stripping "language_model." prefix
+        // Python checkpoint: language_model.model.layers.0.self_attn.q_proj.weight
+        // Swift expects: model.layers.0.self_attn.q_proj.weight
+        for (key, value) in weights {
+            guard key.hasPrefix("language_model.") else { continue }
+
+            let newKey = String(key.dropFirst("language_model.".count))
+            sanitized[newKey] = value
+            sanitized.removeValue(forKey: key)
         }
 
         return sanitized
