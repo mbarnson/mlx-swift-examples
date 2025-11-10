@@ -309,7 +309,7 @@ public class Mistral3: Pixtral {
 
         // Replace with Mistral3MultiModalProjector
         // Both are Module subclasses, so we can reassign
-        self._multiModalProjector.wrappedValue = Mistral3MultiModalProjector(config)
+        self.multiModalProjector = Mistral3MultiModalProjector(config)
     }
 
     /// Override getInputEmbeddings to use Mistral3's projector instead of Pixtral's
