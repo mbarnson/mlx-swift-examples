@@ -666,8 +666,8 @@ public class Pixtral: Module, VLMModel, KVCacheDimensionProvider {
 
     @ModuleInfo(key: "vision_tower") fileprivate var visionTower: Vision.VisionModel
     @ModuleInfo(key: "language_model") fileprivate var languageModel: Language.LanguageModel
-    @ModuleInfo(key: "multi_modal_projector") fileprivate var multiModalProjector:
-        LlavaMultiModalProjector
+    @ModuleInfo(key: "multi_modal_projector") internal var multiModalProjector:
+        Module
 
     public let config: PixtralConfiguration
     let visionFeatureLayer: Int
@@ -721,7 +721,7 @@ public class Pixtral: Module, VLMModel, KVCacheDimensionProvider {
         let selectedImageFeature = hiddenStates[visionFeatureLayer]
 
         // Project vision features to text space
-        let imageFeatures = multiModalProjector(selectedImageFeature)
+        let imageFeatures = (multiModalProjector as! LlavaMultiModalProjector)(selectedImageFeature)
 
         // Merge vision and text embeddings
         return Pixtral.mergeInputIdsWithImageFeatures(
