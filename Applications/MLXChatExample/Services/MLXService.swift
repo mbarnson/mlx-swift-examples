@@ -32,6 +32,8 @@ class MLXService {
         LMModel(name: "acereason:7B", configuration: LLMRegistry.acereason_7b_4bit, type: .llm),
         LMModel(name: "gemma3n:E2B", configuration: LLMRegistry.gemma3n_E2B_it_lm_4bit, type: .llm),
         LMModel(name: "gemma3n:E4B", configuration: LLMRegistry.gemma3n_E4B_it_lm_4bit, type: .llm),
+        LMModel(name: "magistral:8bit", configuration: VLMRegistry.magistralSmall2509_8bit, type: .vlm),
+        LMModel(name: "magistral:4bit", configuration: VLMRegistry.magistralSmall2509_4bit, type: .vlm),
     ]
 
     /// Cache to store loaded model containers to avoid reloading.

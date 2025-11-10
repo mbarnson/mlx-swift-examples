@@ -203,6 +203,16 @@ public class VLMRegistry: AbstractModelRegistry, @unchecked Sendable {
         defaultPrompt: "Describe this image in detail."
     )
 
+    static public let magistralSmall2509_8bit = ModelConfiguration(
+        id: "lmstudio-community/Magistral-Small-2509-MLX-8bit",
+        defaultPrompt: "You are a helpful assistant."
+    )
+
+    static public let magistralSmall2509_4bit = ModelConfiguration(
+        id: "lmstudio-community/Magistral-Small-2509-MLX-4bit",
+        defaultPrompt: "You are a helpful assistant."
+    )
+
     static public func all() -> [ModelConfiguration] {
         [
             paligemma3bMix448_8bit,
@@ -216,6 +226,8 @@ public class VLMRegistry: AbstractModelRegistry, @unchecked Sendable {
             gemma3_27B_qat_4bit,
             smolvlm,
             fastvlm,
+            magistralSmall2509_8bit,
+            magistralSmall2509_4bit,
         ]
     }
 
