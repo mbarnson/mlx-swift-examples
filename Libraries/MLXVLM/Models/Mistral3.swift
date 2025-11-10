@@ -286,9 +286,15 @@ public class Mistral3: Pixtral {
         multiModalProjector as! Mistral3MultiModalProjector
     }
 
+    // Store the config for use in createMultiModalProjector
+    private static var pendingConfig: Mistral3Configuration?
+
     public init(_ config: Mistral3Configuration) {
         // Store config
         self.mistral3Config = config
+
+        // Store config for factory method
+        Self.pendingConfig = config
 
         // Create Pixtral configuration from Mistral3 config
         let pixtralConfig = PixtralConfiguration(
@@ -304,12 +310,21 @@ public class Mistral3: Pixtral {
             eosTokenId: config.eosTokenId
         )
 
-        // Call super.init - this will create a LlavaMultiModalProjector
+        // Call super.init - this will call createMultiModalProjector
         super.init(pixtralConfig)
 
-        // Replace with Mistral3MultiModalProjector
-        // Both are Module subclasses, so we can reassign
-        self.multiModalProjector = Mistral3MultiModalProjector(config)
+        // Clear pending config
+        Self.pendingConfig = nil
+    }
+
+    /// Override factory method to create Mistral3MultiModalProjector
+    override class func createMultiModalProjector(_ config: PixtralConfiguration) -> Module {
+        // Use the Mistral3 config if available
+        if let mistral3Config = Self.pendingConfig {
+            return Mistral3MultiModalProjector(mistral3Config)
+        }
+        // Fallback to parent implementation
+        return super.createMultiModalProjector(config)
     }
 
     /// Override getInputEmbeddings to use Mistral3's projector instead of Pixtral's

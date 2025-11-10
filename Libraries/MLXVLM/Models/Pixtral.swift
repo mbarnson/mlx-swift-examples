@@ -692,7 +692,13 @@ public class Pixtral: Module, VLMModel, KVCacheDimensionProvider {
 
         self._visionTower.wrappedValue = Vision.VisionModel(config.visionConfig)
         self._languageModel.wrappedValue = Language.LanguageModel(config.textConfig)
-        self._multiModalProjector.wrappedValue = LlavaMultiModalProjector(config)
+        self._multiModalProjector.wrappedValue = Self.createMultiModalProjector(config)
+    }
+
+    /// Factory method for creating the multimodal projector
+    /// Subclasses can override this to provide their own projector type
+    class func createMultiModalProjector(_ config: PixtralConfiguration) -> Module {
+        return LlavaMultiModalProjector(config)
     }
 
     // Helper methods for subclasses to access embeddings
