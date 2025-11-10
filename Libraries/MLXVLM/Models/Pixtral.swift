@@ -43,6 +43,27 @@ public struct PixtralConfiguration: Codable, Sendable {
             case ropeScaling = "rope_scaling"
             case maxPositionEmbeddings = "max_position_embeddings"
         }
+
+        public init(from decoder: any Swift.Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+
+            self.modelType = try container.decode(String.self, forKey: .modelType)
+            self.hiddenSize = try container.decode(Int.self, forKey: .hiddenSize)
+            self.headDim = try container.decodeIfPresent(Int.self, forKey: .headDim)
+            self.hiddenLayers = try container.decode(Int.self, forKey: .hiddenLayers)
+            self.intermediateSize = try container.decode(Int.self, forKey: .intermediateSize)
+            self.attentionHeads = try container.decode(Int.self, forKey: .attentionHeads)
+            self.rmsNormEps = try container.decode(Float.self, forKey: .rmsNormEps)
+            self.vocabularySize = try container.decode(Int.self, forKey: .vocabularySize)
+            self.kvHeads = try container.decode(Int.self, forKey: .kvHeads)
+            self.ropeTheta = try container.decode(Float.self, forKey: .ropeTheta)
+
+            // Default matching mlx-vlm/models/pixtral/config.py line 33
+            self.ropeTraditional = try container.decodeIfPresent(Bool.self, forKey: .ropeTraditional) ?? false
+
+            self.ropeScaling = try container.decodeIfPresent([String: StringOrNumber].self, forKey: .ropeScaling)
+            self.maxPositionEmbeddings = try container.decodeIfPresent(Int.self, forKey: .maxPositionEmbeddings)
+        }
     }
 
     public struct VisionConfiguration: Codable, Sendable {
@@ -74,6 +95,27 @@ public struct PixtralConfiguration: Codable, Sendable {
             case numChannels = "num_channels"
             case rmsNormEps = "rms_norm_eps"
             case ropeTheta = "rope_theta"
+        }
+
+        public init(from decoder: any Swift.Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+
+            self.modelType = try container.decode(String.self, forKey: .modelType)
+            self.hiddenLayers = try container.decode(Int.self, forKey: .hiddenLayers)
+            self.hiddenSize = try container.decode(Int.self, forKey: .hiddenSize)
+            self.headDim = try container.decodeIfPresent(Int.self, forKey: .headDim)
+            self.intermediateSize = try container.decode(Int.self, forKey: .intermediateSize)
+            self.attentionHeads = try container.decode(Int.self, forKey: .attentionHeads)
+            self.imageSize = try container.decode(Int.self, forKey: .imageSize)
+            self.patchSize = try container.decode(Int.self, forKey: .patchSize)
+            self.projectionDim = try container.decodeIfPresent(Int.self, forKey: .projectionDim)
+
+            // Defaults matching mlx-vlm/models/pixtral/config.py lines 61, 63
+            self.vocabularySize = try container.decodeIfPresent(Int.self, forKey: .vocabularySize) ?? 32000
+
+            self.numChannels = try container.decode(Int.self, forKey: .numChannels)
+            self.rmsNormEps = try container.decodeIfPresent(Float.self, forKey: .rmsNormEps) ?? 1e-5
+            self.ropeTheta = try container.decode(Float.self, forKey: .ropeTheta)
         }
     }
 

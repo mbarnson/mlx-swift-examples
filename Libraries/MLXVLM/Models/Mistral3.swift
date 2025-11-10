@@ -38,6 +38,24 @@ public struct Mistral3Configuration: Codable, Sendable {
         case multimodalProjectorBias = "multimodal_projector_bias"
         case eosTokenId = "eos_token_id"
     }
+
+    public init(from decoder: any Swift.Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        self.textConfig = try container.decode(PixtralConfiguration.TextConfiguration.self, forKey: .textConfig)
+        self.visionConfig = try container.decode(PixtralConfiguration.VisionConfiguration.self, forKey: .visionConfig)
+        self.modelType = try container.decode(String.self, forKey: .modelType)
+
+        // Defaults matching mlx-vlm/models/mistral3/config.py
+        self.ignoreIndex = try container.decodeIfPresent(Int.self, forKey: .ignoreIndex) ?? -100
+        self.imageTokenIndex = try container.decodeIfPresent(Int.self, forKey: .imageTokenIndex) ?? 10
+        self.visionFeatureSelectStrategy = try container.decodeIfPresent(String.self, forKey: .visionFeatureSelectStrategy) ?? "full"
+        self.visionFeatureLayer = try container.decodeIfPresent(Int.self, forKey: .visionFeatureLayer) ?? -1
+        self.vocabularySize = try container.decodeIfPresent(Int.self, forKey: .vocabularySize) ?? 32000
+        self.spatialMergeSize = try container.decodeIfPresent(Int.self, forKey: .spatialMergeSize) ?? 2
+        self.multimodalProjectorBias = try container.decodeIfPresent(Bool.self, forKey: .multimodalProjectorBias) ?? false
+        self.eosTokenId = try container.decodeIfPresent([Int].self, forKey: .eosTokenId)
+    }
 }
 
 // MARK: - Unfold Operation (im2col)
