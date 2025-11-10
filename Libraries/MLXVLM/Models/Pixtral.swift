@@ -85,8 +85,7 @@ public struct PixtralConfiguration: Codable, Sendable {
     public let visionFeatureSelectStrategy: String
     public let visionFeatureLayer: Int
     public let vocabularySize: Int
-    // Default to true for backward compatibility with existing Pixtral models
-    public var multimodalProjectorBias: Bool? = nil
+    public let multimodalProjectorBias: Bool
     public let eosTokenId: [Int]?
 
     enum CodingKeys: String, CodingKey {
@@ -102,7 +101,6 @@ public struct PixtralConfiguration: Codable, Sendable {
         case eosTokenId = "eos_token_id"
     }
 
-    // Memberwise initializer for programmatic construction
     public init(
         textConfig: TextConfiguration,
         visionConfig: VisionConfiguration,
@@ -126,16 +124,19 @@ public struct PixtralConfiguration: Codable, Sendable {
         self.multimodalProjectorBias = multimodalProjectorBias
         self.eosTokenId = eosTokenId
     }
+}
 
-    // Computed property for bias with backward-compatible default
-    public var effectiveMultimodalProjectorBias: Bool {
-        multimodalProjectorBias ?? true
-    }
+// MARK: - Errors
+
+public enum PixtralError: Error {
+    case missingInput
+    case invalidPairArray(count: Int)
+    case imageSizeMismatch(images: Int, sizes: Int)
 }
 
 // MARK: - Vision Encoder
 
-fileprivate enum Vision {
+private enum Vision {
 
     /// Check if the array has the expected shape for conv weights
     static func checkArrayShape(_ arr: MLXArray) -> Bool {
@@ -154,7 +155,15 @@ fileprivate enum Vision {
         return (outChannels >= kH) && (outChannels >= kW) && (kH == kW)
     }
 
-    /// Generate position IDs in meshgrid format for patch embeddings
+    /// Generate position IDs in meshgrid format for patch embeddings.
+    ///
+    /// Creates 1D position indices for a sequence of 2D image patches, using row-major ordering.
+    /// Each patch's position is calculated as `row * maxWidth + col`, then flattened and concatenated.
+    ///
+    /// - Parameters:
+    ///   - patchEmbedsList: List of patch embedding tensors, each of shape (height, width, features)
+    ///   - maxWidth: Maximum width used for position calculation (typically max patch width across all images)
+    /// - Returns: Concatenated 1D position IDs for all patches
     static func positionIdsInMeshgrid(patchEmbedsList: [MLXArray], maxWidth: Int) -> MLXArray {
         var positions: [MLXArray] = []
 
@@ -163,8 +172,8 @@ fileprivate enum Vision {
             let width = patch.dim(1)
 
             let indices = MLXArray.zeros([height, width, 2], dtype: .int32)
-            for h in 0..<height {
-                for w in 0..<width {
+            for h in 0 ..< height {
+                for w in 0 ..< width {
                     indices[h, w, 0] = MLXArray(h)
                     indices[h, w, 1] = MLXArray(w)
                 }
@@ -180,22 +189,31 @@ fileprivate enum Vision {
         return concatenated(positions)
     }
 
-    /// Generate block attention mask for patch embeddings
+    /// Generate block attention mask for separate image patches.
+    ///
+    /// Creates an attention mask that prevents attention across different images in a batch.
+    /// Patches from the same image can attend to each other (mask=0), but patches from
+    /// different images cannot (mask=-1e9).
+    ///
+    /// - Parameters:
+    ///   - patchEmbedsList: Number of patches for each image in the batch
+    ///   - tensor: Reference tensor for shape and dtype information
+    /// - Returns: Attention mask of shape (B, 1, seqLen, seqLen)
     static func generateBlockAttentionMask(patchEmbedsList: [Int], tensor: MLXArray) -> MLXArray {
         let seqLen = tensor.dim(1)
         let dMin: Float = -1e9
 
         // Create a matrix filled with dMin (equivalent to mx.full in Python)
-        var causalMask = MLXArray.zeros([seqLen, seqLen]) + dMin
+        let causalMask = MLXArray.zeros([seqLen, seqLen]) + dMin
 
         let blockEndIdx = MLXArray(patchEmbedsList).cumsum()
         var blockStartIdx = MLXArray([0] + Array(patchEmbedsList.dropLast()))
         blockStartIdx = blockStartIdx.cumsum()
 
-        for i in 0..<patchEmbedsList.count {
+        for i in 0 ..< patchEmbedsList.count {
             let start = Int(blockStartIdx[i].item(Int.self))
             let end = Int(blockEndIdx[i].item(Int.self))
-            causalMask[start..<end, start..<end] = MLXArray(0.0)
+            causalMask[start ..< end, start ..< end] = MLXArray(0.0)
         }
 
         let batchSize = tensor.dim(0)
@@ -207,13 +225,15 @@ fileprivate enum Vision {
     /// Rotate half of the hidden dims of the input
     static func rotateHalf(_ x: MLXArray) -> MLXArray {
         let lastDim = x.dim(-1)
-        let x1 = x[.ellipsis, 0..<(lastDim / 2)]
+        let x1 = x[.ellipsis, 0 ..< (lastDim / 2)]
         let x2 = x[.ellipsis, (lastDim / 2)...]
         return concatenated([-x2, x1], axis: -1)
     }
 
     /// Apply rotary position embedding to query and key tensors
-    static func applyRotaryPosEmb(q: MLXArray, k: MLXArray, cos: MLXArray, sin: MLXArray, unsequeezeDim: Int = 1) -> (MLXArray, MLXArray) {
+    static func applyRotaryPosEmb(
+        q: MLXArray, k: MLXArray, cos: MLXArray, sin: MLXArray, unsequeezeDim: Int = 1
+    ) -> (MLXArray, MLXArray) {
         let cosExpanded = cos.expandedDimensions(axis: unsequeezeDim)
         let sinExpanded = sin.expandedDimensions(axis: unsequeezeDim)
 
@@ -234,7 +254,11 @@ fileprivate enum Vision {
         @ModuleInfo(key: "v_proj") var vProj: Linear
         @ModuleInfo(key: "o_proj") var oProj: Linear
 
-        public init(dims: Int, numHeads: Int, queryInputDims: Int? = nil, keyInputDims: Int? = nil, valueInputDims: Int? = nil, valueDims: Int? = nil, valueOutputDims: Int? = nil, bias: Bool = false) {
+        public init(
+            dims: Int, numHeads: Int, queryInputDims: Int? = nil, keyInputDims: Int? = nil,
+            valueInputDims: Int? = nil, valueDims: Int? = nil, valueOutputDims: Int? = nil,
+            bias: Bool = false
+        ) {
 
             precondition(dims % numHeads == 0, "dims should be divisible by num_heads")
 
@@ -255,7 +279,9 @@ fileprivate enum Vision {
             self._oProj.wrappedValue = Linear(valueDims, valueOutputDims, bias: bias)
         }
 
-        public func callAsFunction(_ queries: MLXArray, keys: MLXArray, values: MLXArray, mask: MLXArray? = nil) -> MLXArray {
+        public func callAsFunction(
+            _ queries: MLXArray, keys: MLXArray, values: MLXArray, mask: MLXArray? = nil
+        ) -> MLXArray {
             var q = qProj(queries)
             var k = kProj(keys)
             var v = vProj(values)
@@ -312,13 +338,17 @@ fileprivate enum Vision {
                 dims: args.hiddenSize,
                 numHeads: args.attentionHeads
             )
-            self._mlp.wrappedValue = MLP(dimensions: args.hiddenSize, hiddenDimensions: args.intermediateSize)
-            self._inputLayernorm.wrappedValue = RMSNorm(dimensions: args.hiddenSize, eps: args.rmsNormEps)
-            self._postAttentionLayernorm.wrappedValue = RMSNorm(dimensions: args.hiddenSize, eps: args.rmsNormEps)
+            self._mlp.wrappedValue = MLP(
+                dimensions: args.hiddenSize, hiddenDimensions: args.intermediateSize)
+            self._inputLayernorm.wrappedValue = RMSNorm(
+                dimensions: args.hiddenSize, eps: args.rmsNormEps)
+            self._postAttentionLayernorm.wrappedValue = RMSNorm(
+                dimensions: args.hiddenSize, eps: args.rmsNormEps)
         }
 
         public func callAsFunction(_ x: MLXArray, mask: MLXArray? = nil) -> MLXArray {
-            let r = selfAttn(inputLayernorm(x), keys: inputLayernorm(x), values: inputLayernorm(x), mask: mask)
+            let r = selfAttn(
+                inputLayernorm(x), keys: inputLayernorm(x), values: inputLayernorm(x), mask: mask)
             var h = x + r
             h = h + mlp(postAttentionLayernorm(h))
             return h
@@ -347,15 +377,17 @@ fileprivate enum Vision {
 
             self._lnPre.wrappedValue = RMSNorm(dimensions: args.hiddenSize, eps: args.rmsNormEps)
 
-            self.layers = (0..<args.hiddenLayers).map { _ in
+            self.layers = (0 ..< args.hiddenLayers).map { _ in
                 VisionEncoderLayer(args)
             }
 
             let headDim = args.headDim ?? (args.hiddenSize / args.attentionHeads)
-            self.positionEmbedding = RoPE(dimensions: headDim, traditional: false, base: args.ropeTheta)
+            self.positionEmbedding = RoPE(
+                dimensions: headDim, traditional: false, base: args.ropeTheta)
         }
 
-        public func callAsFunction(_ x: [MLXArray], outputHiddenStates: Bool = false) -> [MLXArray] {
+        public func callAsFunction(_ x: [MLXArray], outputHiddenStates: Bool = false) -> [MLXArray]
+        {
             var hiddenStates: [MLXArray] = []
             var allHiddenStates: [MLXArray] = []
 
@@ -398,7 +430,8 @@ fileprivate enum Vision {
             self._visionModel.wrappedValue = VisionTransformer(args)
         }
 
-        public func callAsFunction(_ x: [MLXArray], outputHiddenStates: Bool = false) -> [MLXArray] {
+        public func callAsFunction(_ x: [MLXArray], outputHiddenStates: Bool = false) -> [MLXArray]
+        {
             return visionModel(x, outputHiddenStates: outputHiddenStates)
         }
     }
@@ -406,7 +439,7 @@ fileprivate enum Vision {
 
 // MARK: - Language Model
 
-fileprivate enum Language {
+private enum Language {
 
     fileprivate class Attention: Module {
         let heads: Int
@@ -434,14 +467,16 @@ fileprivate enum Language {
             self._wv.wrappedValue = Linear(dim, kvHeads * headDim, bias: false)
             self._wo.wrappedValue = Linear(heads * headDim, dim, bias: false)
 
-            let ropeScale: Float = if let ropeScaling = args.ropeScaling,
-                             let type = ropeScaling["type"]?.asString(),
-                             type == "linear",
-                             let factor = ropeScaling["factor"]?.asFloat() {
-                Float(1.0) / factor
-            } else {
-                Float(1.0)
-            }
+            let ropeScale: Float =
+                if let ropeScaling = args.ropeScaling,
+                    let type = ropeScaling["type"]?.asString(),
+                    type == "linear",
+                    let factor = ropeScaling["factor"]?.asFloat()
+                {
+                    Float(1.0) / factor
+                } else {
+                    Float(1.0)
+                }
 
             self._rope.wrappedValue = RoPE(
                 dimensions: headDim,
@@ -451,7 +486,9 @@ fileprivate enum Language {
             )
         }
 
-        public func callAsFunction(_ x: MLXArray, mask: MLXArray? = nil, cache: KVCache?) -> MLXArray {
+        public func callAsFunction(_ x: MLXArray, mask: MLXArray? = nil, cache: KVCache?)
+            -> MLXArray
+        {
             let (B, L) = (x.dim(0), x.dim(1))
 
             var queries = wq(x)
@@ -469,7 +506,7 @@ fileprivate enum Language {
 
             let maskConverted: MLXFast.ScaledDotProductAttentionMaskMode =
                 if let mask {
-                    .array(mask[.ellipsis, 0..<keys.dim(-2)])
+                    .array(mask[.ellipsis, 0 ..< keys.dim(-2)])
                 } else {
                     .none
                 }
@@ -514,11 +551,15 @@ fileprivate enum Language {
         public init(_ args: PixtralConfiguration.TextConfiguration) {
             self._attention.wrappedValue = Attention(args)
             self.mlp = MLP(dimensions: args.hiddenSize, hiddenDimensions: args.intermediateSize)
-            self._inputLayernorm.wrappedValue = RMSNorm(dimensions: args.hiddenSize, eps: args.rmsNormEps)
-            self._postAttentionLayernorm.wrappedValue = RMSNorm(dimensions: args.hiddenSize, eps: args.rmsNormEps)
+            self._inputLayernorm.wrappedValue = RMSNorm(
+                dimensions: args.hiddenSize, eps: args.rmsNormEps)
+            self._postAttentionLayernorm.wrappedValue = RMSNorm(
+                dimensions: args.hiddenSize, eps: args.rmsNormEps)
         }
 
-        public func callAsFunction(_ x: MLXArray, mask: MLXArray? = nil, cache: KVCache?) -> MLXArray {
+        public func callAsFunction(_ x: MLXArray, mask: MLXArray? = nil, cache: KVCache?)
+            -> MLXArray
+        {
             let r = attention(inputLayernorm(x), mask: mask, cache: cache)
             var h = x + r
             h = h + mlp(postAttentionLayernorm(h))
@@ -540,21 +581,23 @@ fileprivate enum Language {
                 dimensions: args.hiddenSize
             )
 
-            self.layers = (0..<args.hiddenLayers).map { _ in
+            self.layers = (0 ..< args.hiddenLayers).map { _ in
                 TransformerBlock(args)
             }
 
             self.norm = RMSNorm(dimensions: args.hiddenSize, eps: args.rmsNormEps)
         }
 
-        public func callAsFunction(_ inputs: MLXArray?, cache: [KVCache]? = nil, inputEmbedding: MLXArray? = nil) -> MLXArray {
+        public func callAsFunction(
+            _ inputs: MLXArray?, cache: [KVCache]? = nil, inputEmbedding: MLXArray? = nil
+        ) throws -> MLXArray {
             var h: MLXArray
             if let inputEmbedding {
                 h = inputEmbedding
             } else if let inputs {
                 h = embedTokens(inputs)
             } else {
-                fatalError("one of inputs or inputEmbedding must be non-nil")
+                throw PixtralError.missingInput
             }
 
             let mask: MLXArray? = createAttentionMask(h: h, cache: cache)
@@ -576,11 +619,13 @@ fileprivate enum Language {
         public init(_ args: PixtralConfiguration.TextConfiguration) {
             self.model = MistralModel(args)
             self._lmHead.wrappedValue = Linear(args.hiddenSize, args.vocabularySize, bias: false)
-            self.kvHeads = (0..<args.hiddenLayers).map { _ in args.kvHeads }
+            self.kvHeads = (0 ..< args.hiddenLayers).map { _ in args.kvHeads }
         }
 
-        public func callAsFunction(_ inputs: MLXArray?, cache: [KVCache]? = nil, inputEmbedding: MLXArray? = nil) -> LMOutput {
-            let out = model(inputs, cache: cache, inputEmbedding: inputEmbedding)
+        public func callAsFunction(
+            _ inputs: MLXArray?, cache: [KVCache]? = nil, inputEmbedding: MLXArray? = nil
+        ) throws -> LMOutput {
+            let out = try model(inputs, cache: cache, inputEmbedding: inputEmbedding)
             return LMOutput(logits: lmHead(out))
         }
     }
@@ -588,14 +633,14 @@ fileprivate enum Language {
 
 // MARK: - Main Pixtral Model
 
-fileprivate class LlavaMultiModalProjector: Module {
+private class LlavaMultiModalProjector: Module {
     @ModuleInfo(key: "linear_1") var linear1: Linear
     let gelu: GELU
     @ModuleInfo(key: "linear_2") var linear2: Linear
 
     public init(_ config: PixtralConfiguration) {
         // Follow Mistral's VisionLanguageAdapter pattern: configurable bias
-        let bias = config.effectiveMultimodalProjectorBias
+        let bias = config.multimodalProjectorBias
         self._linear1.wrappedValue = Linear(
             config.visionConfig.hiddenSize,
             config.textConfig.hiddenSize,
@@ -621,7 +666,8 @@ public class Pixtral: Module, VLMModel, KVCacheDimensionProvider {
 
     @ModuleInfo(key: "vision_tower") fileprivate var visionTower: Vision.VisionModel
     @ModuleInfo(key: "language_model") fileprivate var languageModel: Language.LanguageModel
-    @ModuleInfo(key: "multi_modal_projector") fileprivate var multiModalProjector: LlavaMultiModalProjector
+    @ModuleInfo(key: "multi_modal_projector") fileprivate var multiModalProjector:
+        LlavaMultiModalProjector
 
     public let config: PixtralConfiguration
     let visionFeatureLayer: Int
@@ -693,13 +739,11 @@ public class Pixtral: Module, VLMModel, KVCacheDimensionProvider {
         inputIds: MLXArray
     ) -> MLXArray {
         let numImages = imageFeatures.dim(0)
-        let numImagePatches = imageFeatures.dim(1)
-        let embedDim = imageFeatures.dim(2)
 
         // Find positions of image tokens (assuming batch size 1)
         let flatInputIds = inputIds.flattened()
         var imagePositions: [Int] = []
-        for i in 0..<flatInputIds.size {
+        for i in 0 ..< flatInputIds.size {
             if flatInputIds[i].item(Int.self) == imageTokenIndex {
                 imagePositions.append(i)
             }
@@ -709,13 +753,13 @@ public class Pixtral: Module, VLMModel, KVCacheDimensionProvider {
         var startIdx = 0
 
         for position in imagePositions {
-            textSegments.append(inputsEmbeds[0..., startIdx..<position, 0...])
+            textSegments.append(inputsEmbeds[0..., startIdx ..< position, 0...])
             startIdx = position + 1
         }
 
         // Split image features into separate embeddings for each image
         var imageEmbeddings: [MLXArray] = []
-        for i in 0..<numImages {
+        for i in 0 ..< numImages {
             imageEmbeddings.append(imageFeatures[i, 0..., 0...])
         }
 
@@ -730,7 +774,9 @@ public class Pixtral: Module, VLMModel, KVCacheDimensionProvider {
         return concatenated(finalEmbeddings, axis: 1)
     }
 
-    public func prepare(_ input: LMInput, cache: [any KVCache], windowSize: Int?) throws -> PrepareResult {
+    public func prepare(_ input: LMInput, cache: [any KVCache], windowSize: Int?) throws
+        -> PrepareResult
+    {
         // Get vision model dtype for type consistency
         let dtype = visionTower.visionModel.patchConv.weight.dtype
 
@@ -758,7 +804,8 @@ public class Pixtral: Module, VLMModel, KVCacheDimensionProvider {
         )
 
         // Forward through language model
-        let result = languageModel(nil, cache: cache, inputEmbedding: inputEmbeddings.expandedDimensions(axis: 0))
+        let result = try languageModel(
+            nil, cache: cache, inputEmbedding: inputEmbeddings.expandedDimensions(axis: 0))
 
         return .logits(result)
     }
@@ -767,8 +814,8 @@ public class Pixtral: Module, VLMModel, KVCacheDimensionProvider {
         _ inputs: MLXArray,
         cache: [KVCache]?,
         inputEmbedding: MLXArray?
-    ) -> LMOutput {
-        var out = languageModel(inputs, cache: cache, inputEmbedding: inputEmbedding)
+    ) throws -> LMOutput {
+        let out = try languageModel(inputs, cache: cache, inputEmbedding: inputEmbedding)
         return out
     }
 
@@ -783,8 +830,11 @@ public class Pixtral: Module, VLMModel, KVCacheDimensionProvider {
 
             // Add .vision_model wrapper if missing (for older checkpoints)
             if !key.contains("vision_model") {
-                if key.contains("transformer") || key.contains("patch_conv") || key.contains("ln_pre") {
-                    newKey = newKey.replacingOccurrences(of: "vision_tower", with: "vision_tower.vision_model")
+                if key.contains("transformer") || key.contains("patch_conv")
+                    || key.contains("ln_pre")
+                {
+                    newKey = newKey.replacingOccurrences(
+                        of: "vision_tower", with: "vision_tower.vision_model")
                 }
             }
 
@@ -795,7 +845,8 @@ public class Pixtral: Module, VLMModel, KVCacheDimensionProvider {
             newKey = newKey.replacingOccurrences(of: ".attention.", with: ".self_attn.")
             newKey = newKey.replacingOccurrences(of: ".attention_norm.", with: ".input_layernorm.")
             newKey = newKey.replacingOccurrences(of: ".feed_forward.", with: ".mlp.")
-            newKey = newKey.replacingOccurrences(of: ".ffn_norm.", with: ".post_attention_layernorm.")
+            newKey = newKey.replacingOccurrences(
+                of: ".ffn_norm.", with: ".post_attention_layernorm.")
 
             if newKey != key {
                 sanitized[newKey] = value
@@ -896,7 +947,9 @@ public class PixtralProcessor: UserInputProcessor {
     ///
     /// Pixtral's vision encoder handles most preprocessing internally via Conv2d patch embedding
     /// We just need to provide images as MLXArrays in the correct format
-    private func preprocessImages(_ images: [UserInput.Image], processing: UserInput.Processing?) throws -> MLXArray {
+    private func preprocessImages(_ images: [UserInput.Image], processing: UserInput.Processing?)
+        throws -> MLXArray
+    {
         var processedImages: [MLXArray] = []
 
         for imageInput in images {
@@ -928,7 +981,7 @@ public class PixtralProcessor: UserInputProcessor {
         // THIS IS THE KEY STEP for mistral-common compatibility
         // The tokenizer's applyChatTemplate() uses the same Jinja templates that
         // mistral-common uses, ensuring identical tokenization and special token handling
-        var promptTokens = try tokenizer.applyChatTemplate(
+        let promptTokens = try tokenizer.applyChatTemplate(
             messages: messages,
             tools: input.tools,
             additionalContext: input.additionalContext

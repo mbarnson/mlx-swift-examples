@@ -14,7 +14,7 @@ public class PixtralMessageGeneratorTests: XCTestCase {
 
     // MARK: - Text-Only Messages
 
-    public func testSimpleTextMessage() {
+    func testSimpleTextMessage() {
         let chat: [Chat.Message] = [
             .user("Tell me a story.")
         ]
@@ -32,7 +32,7 @@ public class PixtralMessageGeneratorTests: XCTestCase {
         assertEqual(expected, messages)
     }
 
-    public func testMultiTurnConversation() {
+    func testMultiTurnConversation() {
         let chat: [Chat.Message] = [
             .system("You are a helpful assistant."),
             .user("What is MLX?"),
@@ -67,7 +67,7 @@ public class PixtralMessageGeneratorTests: XCTestCase {
 
     // MARK: - Messages with Images
 
-    public func testSingleImageMessage() {
+    func testSingleImageMessage() {
         let chat: [Chat.Message] = [
             .user(
                 "What is this?",
@@ -92,14 +92,14 @@ public class PixtralMessageGeneratorTests: XCTestCase {
                     [
                         "type": "image"
                     ],
-                ] as [[String: Any]]
+                ] as [[String: Any]],
             ]
         ]
 
         assertEqual(expected, messages)
     }
 
-    public func testMultipleImagesMessage() {
+    func testMultipleImagesMessage() {
         let chat: [Chat.Message] = [
             .user(
                 "Compare these images.",
@@ -127,14 +127,14 @@ public class PixtralMessageGeneratorTests: XCTestCase {
                     [
                         "type": "image"
                     ],
-                ] as [[String: Any]]
+                ] as [[String: Any]],
             ]
         ]
 
         assertEqual(expected, messages)
     }
 
-    public func testEmptyTextWithImage() {
+    func testEmptyTextWithImage() {
         // Test case where user sends only an image with no text
         let chat: [Chat.Message] = [
             .user(
@@ -160,19 +160,23 @@ public class PixtralMessageGeneratorTests: XCTestCase {
                     [
                         "type": "image"
                     ],
-                ] as [[String: Any]]
+                ] as [[String: Any]],
             ]
         ]
 
         assertEqual(expected, messages)
     }
 
-    public func testMixedConversationWithImages() {
+    func testMixedConversationWithImages() {
         let chat: [Chat.Message] = [
             .system("You are a vision assistant."),
-            .user("Describe this image.", images: [.url(URL(string: "https://example.com/img1.png")!)]),
+            .user(
+                "Describe this image.", images: [.url(URL(string: "https://example.com/img1.png")!)]
+            ),
             .assistant("I see a beautiful landscape."),
-            .user("What about this one?", images: [.url(URL(string: "https://example.com/img2.png")!)]),
+            .user(
+                "What about this one?", images: [.url(URL(string: "https://example.com/img2.png")!)]
+            ),
         ]
 
         let userInput = UserInput(chat: chat)
@@ -188,7 +192,7 @@ public class PixtralMessageGeneratorTests: XCTestCase {
                 "content": [
                     ["type": "text", "text": "Describe this image."],
                     ["type": "image"],
-                ] as [[String: Any]]
+                ] as [[String: Any]],
             ],
             [
                 "role": "assistant",
@@ -199,7 +203,7 @@ public class PixtralMessageGeneratorTests: XCTestCase {
                 "content": [
                     ["type": "text", "text": "What about this one?"],
                     ["type": "image"],
-                ] as [[String: Any]]
+                ] as [[String: Any]],
             ],
         ]
 
@@ -208,7 +212,7 @@ public class PixtralMessageGeneratorTests: XCTestCase {
 
     // MARK: - Direct Text Prompt
 
-    public func testDirectTextPrompt() {
+    func testDirectTextPrompt() {
         // Test UserInput.Prompt.text case
         let userInput = UserInput(prompt: .text("Hello, world!"))
         let messages = PixtralMessageGenerator().generate(from: userInput)
@@ -225,7 +229,7 @@ public class PixtralMessageGeneratorTests: XCTestCase {
 
     // MARK: - Direct Messages Format
 
-    public func testDirectMessagesFormat() {
+    func testDirectMessagesFormat() {
         // Test UserInput.Prompt.messages case (pre-formatted messages)
         let preformattedMessages: [[String: Any]] = [
             [
@@ -237,7 +241,7 @@ public class PixtralMessageGeneratorTests: XCTestCase {
                 "content": [
                     ["type": "text", "text": "Analyze this."],
                     ["type": "image"],
-                ] as [[String: Any]]
+                ] as [[String: Any]],
             ],
         ]
 
@@ -250,7 +254,7 @@ public class PixtralMessageGeneratorTests: XCTestCase {
 
     // MARK: - Role Validation
 
-    public func testAllRoles() {
+    func testAllRoles() {
         let chat: [Chat.Message] = [
             .init(role: .system, content: "System message"),
             .init(role: .user, content: "User message"),
@@ -270,7 +274,7 @@ public class PixtralMessageGeneratorTests: XCTestCase {
 
     /// Verify that the message structure matches mistral-common's UserMessage format
     /// Reference: UserMessage.content can be str | list[UserContentChunk]
-    public func testMistralCommonUserMessageFormat() {
+    func testMistralCommonUserMessageFormat() {
         // Test both simple string content and multi-part content
         let simpleChat: [Chat.Message] = [.user("Simple text")]
         let simpleInput = UserInput(chat: simpleChat)
@@ -308,7 +312,7 @@ public class PixtralMessageGeneratorTests: XCTestCase {
 
     /// Verify chunk structure matches mistral-common's TextChunk/ImageChunk format
     /// Reference: TextChunk has {type: "text", text: str}, ImageChunk has {type: "image"}
-    public func testMistralCommonChunkFormat() {
+    func testMistralCommonChunkFormat() {
         let chat: [Chat.Message] = [
             .user("Describe this", images: [.url(URL(string: "https://example.com/img.png")!)])
         ]
@@ -317,7 +321,8 @@ public class PixtralMessageGeneratorTests: XCTestCase {
         let messages = PixtralMessageGenerator().generate(from: userInput)
 
         guard let message = messages.first as? [String: Any],
-              let content = message["content"] as? [[String: Any]] else {
+            let content = message["content"] as? [[String: Any]]
+        else {
             XCTFail("Expected message with array content")
             return
         }
@@ -326,11 +331,114 @@ public class PixtralMessageGeneratorTests: XCTestCase {
         let textChunk = content[0]
         XCTAssertEqual(textChunk["type"] as? String, "text")
         XCTAssertNotNil(textChunk["text"])
-        XCTAssertEqual(textChunk.keys.count, 2, "TextChunk should have exactly 2 keys: type and text")
+        XCTAssertEqual(
+            textChunk.keys.count, 2, "TextChunk should have exactly 2 keys: type and text")
 
         // ImageChunk format
         let imageChunk = content[1]
         XCTAssertEqual(imageChunk["type"] as? String, "image")
         XCTAssertEqual(imageChunk.keys.count, 1, "ImageChunk should have exactly 1 key: type")
+    }
+}
+
+// MARK: - Unfold Operation Tests
+
+/// Tests for the unfold (im2col) operation used in Mistral3 patch merging
+public class UnfoldOperationTests: XCTestCase {
+
+    func testUnfoldBasic2x2() {
+        // Test basic 2x2 kernel with 2x2 stride (non-overlapping)
+        // Input: 1 batch, 1 channel, 4x4 spatial
+        let input = MLXArray(Array(0 ..< 16).map { Float($0) }, [1, 1, 4, 4])
+
+        // unfold with 2x2 kernel, stride 2x2 should give us 4 non-overlapping blocks
+        let output = MLXVLM.unfold(input, kernelSize: (2, 2), stride: (2, 2))
+
+        // Expected shape: (1, 1*2*2, 4) = (1, 4, 4)
+        // 4 = channels * kernel_height * kernel_width
+        // 4 = number of 2x2 blocks in 4x4 image
+        XCTAssertEqual(output.shape, [1, 4, 4])
+    }
+
+    func testUnfoldWithPadding() {
+        // Test unfold with padding
+        let input = MLXArray.ones([1, 1, 2, 2])
+
+        // With padding(1,1), the 2x2 input becomes 4x4 after padding
+        // Then with 2x2 kernel and 2x2 stride, we get 4 blocks
+        let output = MLXVLM.unfold(input, kernelSize: (2, 2), padding: (1, 1), stride: (2, 2))
+
+        // Expected shape: (1, 4, 4)
+        XCTAssertEqual(output.shape, [1, 4, 4])
+    }
+
+    func testUnfoldMultiChannel() {
+        // Test with multiple channels
+        let input = MLXArray.ones([1, 3, 4, 4])  // 3 channels
+
+        let output = MLXVLM.unfold(input, kernelSize: (2, 2), stride: (2, 2))
+
+        // Expected shape: (1, 3*2*2, 4) = (1, 12, 4)
+        XCTAssertEqual(output.shape, [1, 12, 4])
+    }
+
+    func testUnfoldOverlapping() {
+        // Test with overlapping patches (stride < kernel size)
+        let input = MLXArray.ones([1, 1, 4, 4])
+
+        let output = MLXVLM.unfold(input, kernelSize: (2, 2), stride: (1, 1))
+
+        // With stride 1, we get many overlapping blocks
+        // Output blocks = (4-2)/1 + 1 = 3 in each dimension, so 3*3 = 9 blocks total
+        XCTAssertEqual(output.shape, [1, 4, 9])
+    }
+}
+
+// MARK: - Processor Message Format Tests
+
+/// Tests to verify that Pixtral and Mistral3 processors produce identical message formats
+/// since Mistral3 reuses Pixtral's message generator
+public class ProcessorMessageFormatTests: XCTestCase {
+
+    func testMistral3UsesPixtralMessageGenerator() {
+        // Verify that Mistral3 produces the same message format as Pixtral
+        // Both should use PixtralMessageGenerator internally
+
+        let chat: [Chat.Message] = [
+            .user(
+                "Compare these images",
+                images: [
+                    .url(URL(string: "https://example.com/image1.png")!),
+                    .url(URL(string: "https://example.com/image2.png")!),
+                ]
+            )
+        ]
+
+        let userInput = UserInput(chat: chat)
+
+        // Both Pixtral and Mistral3 use the same message generator
+        let messageGenerator = PixtralMessageGenerator()
+        let messages = messageGenerator.generate(from: userInput)
+
+        // Verify message structure matches mistral-common format
+        let expected: [[String: Any]] = [
+            [
+                "role": "user",
+                "content": [
+                    [
+                        "type": "text",
+                        "text": "Compare these images",
+                    ],
+                    [
+                        "type": "image"
+                    ],
+                    [
+                        "type": "image"
+                    ],
+                ] as [[String: Any]],
+            ]
+        ]
+
+        assertEqual(expected, messages)
     }
 }

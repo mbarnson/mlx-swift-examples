@@ -109,9 +109,9 @@
             skipped = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "MLXVLMTests"
-               BuildableName = "MLXVLMTests"
-               BlueprintName = "MLXVLMTests"
+               BlueprintIdentifier = "MLXLMTests"
+               BuildableName = "MLXLMTests"
+               BlueprintName = "MLXLMTests"
                ReferencedContainer = "container:">
             </BuildableReference>
          </TestableReference>

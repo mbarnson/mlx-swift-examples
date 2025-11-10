@@ -40,30 +40,34 @@ public struct Mistral3Configuration: Codable, Sendable {
     }
 }
 
-// MARK: - Utility Functions
-
-/// Convert value to pair tuple
-private func pair<T>(_ x: T) -> (T, T) where T: BinaryInteger {
-    return (x, x)
-}
-
-private func pair<T>(_ x: [T]) -> (T, T) {
-    assert(x.count == 2, "Array must have exactly 2 elements")
-    return (x[0], x[1])
-}
-
 // MARK: - Unfold Operation (im2col)
 
-/// Extract sliding local blocks from a batched input tensor (MLX implementation)
-/// Equivalent to PyTorch's nn.functional.unfold or im2col operation
+/// Extract sliding local blocks from a batched input tensor (MLX implementation).
+///
+/// This operation extracts all kernel-sized patches from the input tensor and reorganizes them into columns,
+/// which is commonly used in convolution operations (hence "im2col" - image to column). Each output column
+/// represents one patch flattened into a 1D vector.
+///
+/// The operation is equivalent to PyTorch's `nn.functional.unfold` or traditional im2col implementations.
+/// It's used in Mistral3's spatial patch merging to group image patches into 2x2 blocks before projection.
+///
+/// ## Example
+/// ```swift
+/// let input = MLXArray(shape: [1, 3, 4, 4])  // 1 image, 3 channels, 4x4 spatial
+/// let output = unfold(input, kernelSize: (2, 2), stride: (2, 2))
+/// // output shape: [1, 12, 4]
+/// // - 12 = 3 channels * 2 * 2 kernel size
+/// // - 4 = number of non-overlapping 2x2 blocks in 4x4 image
+/// ```
+///
 /// - Parameters:
-///   - input: Input tensor of shape (B, C, H, W)
-///   - kernelSize: Size of the sliding blocks
-///   - dilation: Controls spacing between kernel elements
-///   - padding: Amount of implicit padding
-///   - stride: Stride between blocks
-/// - Returns: Unfolded tensor of shape (B, C*kernelHeight*kernelWidth, L) where L is the number of blocks
-func unfold(
+///   - input: Input tensor of shape (B, C, H, W) where B=batch, C=channels, H=height, W=width
+///   - kernelSize: Size of the sliding blocks (height, width)
+///   - dilation: Controls spacing between kernel elements. Default (1, 1) means no gaps
+///   - padding: Amount of implicit zero-padding added to input edges. Default (0, 0)
+///   - stride: Step size between blocks (height, width). Default (1, 1) means maximum overlap
+/// - Returns: Unfolded tensor of shape (B, C*kH*kW, L) where L is the number of extracted blocks
+public func unfold(
     _ input: MLXArray,
     kernelSize: (Int, Int),
     dilation: (Int, Int) = (1, 1),
@@ -83,7 +87,7 @@ func unfold(
             IntOrPair((0, 0)),
             IntOrPair((0, 0)),
             IntOrPair((padding.0, padding.0)),
-            IntOrPair((padding.1, padding.1))
+            IntOrPair((padding.1, padding.1)),
         ]
         paddedInput = padded(input, widths: paddingSpec)
     }
@@ -103,8 +107,8 @@ func unfold(
             // Extract the block for all channels
             var block: [MLXArray] = []
 
-            for di in 0..<kernelSize.0 {
-                for dj in 0..<kernelSize.1 {
+            for di in 0 ..< kernelSize.0 {
+                for dj in 0 ..< kernelSize.1 {
                     let hIdx = i + di * dilation.0
                     let wIdx = j + dj * dilation.1
                     // Get the block for all channels
@@ -137,6 +141,15 @@ func unfold(
 
 // MARK: - Mistral3 Components
 
+/// Spatial patch merger for Mistral3 vision model.
+///
+/// Reduces the number of vision tokens by merging adjacent patches in a spatial grid.
+/// This is a key difference from Pixtral: Mistral3 uses 2x2 spatial merging to reduce
+/// token count by 4x, making inference more efficient for high-resolution images.
+///
+/// The merger reshapes image patches from a 1D sequence back into a 2D grid, then uses
+/// the unfold operation to group them into spatial blocks (default 2x2), which are then
+/// projected down to the original hidden dimension.
 internal class Mistral3PatchMerger: Module {
     let spatialMergeSize: Int
     let patchSize: Int
@@ -158,7 +171,7 @@ internal class Mistral3PatchMerger: Module {
     public func callAsFunction(_ imageFeatures: MLXArray, imageSizes: MLXArray) -> MLXArray {
         // Convert image sizes to patch grid dimensions
         var imageSizesPatch: [(Int, Int)] = []
-        for i in 0..<imageSizes.dim(0) {
+        for i in 0 ..< imageSizes.dim(0) {
             let h = Int(imageSizes[i, 0].item(Int.self)) / patchSize
             let w = Int(imageSizes[i, 1].item(Int.self)) / patchSize
             imageSizesPatch.append((h, w))
@@ -168,7 +181,7 @@ internal class Mistral3PatchMerger: Module {
         let d = imageFeatures.dim(imageFeatures.ndim - 1)
 
         // Cast to bfloat16
-        var features = imageFeatures.asType(.bfloat16)
+        let features = imageFeatures.asType(.bfloat16)
 
         // Split into chunks based on tokens per image
         var splitIndices: [Int] = []
@@ -188,7 +201,8 @@ internal class Mistral3PatchMerger: Module {
                 let (h, w) = imageSizesPatch[imageIndex]
 
                 // Reshape to 2D grid and transpose
-                var imageGrid = imageTokens
+                let imageGrid =
+                    imageTokens
                     .reshaped(h, w, d)
                     .transposed(2, 0, 1)
                     .expandedDimensions(axis: 0)  // Add batch dim
@@ -364,7 +378,9 @@ public class Mistral3Processor: UserInputProcessor {
     /// Returns:
     /// - pixelValues: MLXArray [N, C, H, W] concatenated images
     /// - frames: [THW] with (1, height, width) for each image (time=1 for images)
-    private func preprocessImagesWithSizes(_ images: [UserInput.Image], processing: UserInput.Processing?) throws -> (pixelValues: MLXArray, frames: [THW]) {
+    private func preprocessImagesWithSizes(
+        _ images: [UserInput.Image], processing: UserInput.Processing?
+    ) throws -> (pixelValues: MLXArray, frames: [THW]) {
         var processedImages: [MLXArray] = []
         var frames: [THW] = []
 
@@ -413,7 +429,8 @@ public class Mistral3Processor: UserInputProcessor {
         // 3. Handle images if present
         if !input.images.isEmpty {
             // Mistral3-specific: track image sizes for spatial merging
-            let (pixelValues, frames) = try preprocessImagesWithSizes(input.images, processing: input.processing)
+            let (pixelValues, frames) = try preprocessImagesWithSizes(
+                input.images, processing: input.processing)
 
             return LMInput(
                 text: .init(tokens: MLXArray(promptTokens)),
