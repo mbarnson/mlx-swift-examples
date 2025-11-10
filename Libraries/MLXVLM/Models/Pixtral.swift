@@ -255,23 +255,28 @@ private enum Vision {
         @ModuleInfo(key: "o_proj") var oProj: Linear
 
         public init(
-            dims: Int, numHeads: Int, queryInputDims: Int? = nil, keyInputDims: Int? = nil,
+            dims: Int, numHeads: Int, headDim: Int? = nil, queryInputDims: Int? = nil, keyInputDims: Int? = nil,
             valueInputDims: Int? = nil, valueDims: Int? = nil, valueOutputDims: Int? = nil,
             bias: Bool = false
         ) {
 
-            precondition(dims % numHeads == 0, "dims should be divisible by num_heads")
+            // Use explicit headDim if provided, otherwise calculate from dims
+            let actualHeadDim = headDim ?? (dims / numHeads)
+
+            // If headDim is explicit, embedDim might not equal dims
+            // embedDim should be numHeads * headDim
+            let actualEmbedDim = numHeads * actualHeadDim
 
             let queryInputDims = queryInputDims ?? dims
             let keyInputDims = keyInputDims ?? dims
             let valueInputDims = valueInputDims ?? keyInputDims
-            let valueDims = valueDims ?? dims
+            let valueDims = valueDims ?? actualEmbedDim
             let valueOutputDims = valueOutputDims ?? dims
 
-            self.embedDim = dims
+            self.embedDim = actualEmbedDim
             self.numHeads = numHeads
-            self.headDim = embedDim / numHeads
-            self.scale = pow(Float(headDim), -0.5)
+            self.headDim = actualHeadDim
+            self.scale = pow(Float(actualHeadDim), -0.5)
 
             self._qProj.wrappedValue = Linear(queryInputDims, embedDim, bias: bias)
             self._kProj.wrappedValue = Linear(keyInputDims, embedDim, bias: bias)
@@ -336,7 +341,8 @@ private enum Vision {
         public init(_ args: PixtralConfiguration.VisionConfiguration) {
             self._selfAttn.wrappedValue = Attention(
                 dims: args.hiddenSize,
-                numHeads: args.attentionHeads
+                numHeads: args.attentionHeads,
+                headDim: args.headDim
             )
             self._mlp.wrappedValue = MLP(
                 dimensions: args.hiddenSize, hiddenDimensions: args.intermediateSize)
