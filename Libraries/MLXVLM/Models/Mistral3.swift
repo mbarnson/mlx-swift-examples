@@ -234,7 +234,11 @@ internal class Mistral3MultiModalProjector: Module {
     let gelu: GELU
     @ModuleInfo(key: "linear_2") var linear2: Linear
 
+    private let imageSizeRequired: Bool  // Track if we need imageSizes parameter
+
     public init(_ config: Mistral3Configuration) {
+        self.imageSizeRequired = true
+
         // RMS normalization
         self._norm.wrappedValue = RMSNorm(dimensions: config.visionConfig.hiddenSize)
 
@@ -275,10 +279,17 @@ internal class Mistral3MultiModalProjector: Module {
 
 public class Mistral3: Pixtral {
 
-    @ModuleInfo(key: "multi_modal_projector") var multiModalProjector: Mistral3MultiModalProjector
     fileprivate let mistral3Config: Mistral3Configuration
 
+    // Computed property to access projector as Mistral3 type
+    private var mistral3Projector: Mistral3MultiModalProjector {
+        multiModalProjector as! Mistral3MultiModalProjector
+    }
+
     public init(_ config: Mistral3Configuration) {
+        // Store config
+        self.mistral3Config = config
+
         // Create Pixtral configuration from Mistral3 config
         let pixtralConfig = PixtralConfiguration(
             textConfig: config.textConfig,
@@ -293,10 +304,12 @@ public class Mistral3: Pixtral {
             eosTokenId: config.eosTokenId
         )
 
-        self.mistral3Config = config
-        self._multiModalProjector.wrappedValue = Mistral3MultiModalProjector(config)
-
+        // Call super.init - this will create a LlavaMultiModalProjector
         super.init(pixtralConfig)
+
+        // Replace with Mistral3MultiModalProjector
+        // Both are Module subclasses, so we can reassign
+        self._multiModalProjector.wrappedValue = Mistral3MultiModalProjector(config)
     }
 
     /// Override getInputEmbeddings to use Mistral3's projector instead of Pixtral's
@@ -317,7 +330,7 @@ public class Mistral3: Pixtral {
         let selectedImageFeature = hiddenStates[visionFeatureLayer]
 
         // Use Mistral3's multimodal projector (with patch merging)
-        let imageFeatures = multiModalProjector(selectedImageFeature, imageSizes: imageSizes)
+        let imageFeatures = mistral3Projector(selectedImageFeature, imageSizes: imageSizes)
 
         // Merge vision and text embeddings
         return Pixtral.mergeInputIdsWithImageFeatures(
