@@ -229,7 +229,7 @@ internal class Mistral3PatchMerger: Module {
 
 internal class Mistral3MultiModalProjector: Module {
     @ModuleInfo var norm: RMSNorm
-    let patchMerger: Mistral3PatchMerger
+    @ModuleInfo(key: "patch_merger") var patchMerger: Mistral3PatchMerger
     @ModuleInfo(key: "linear_1") var linear1: Linear
     let gelu: GELU
     @ModuleInfo(key: "linear_2") var linear2: Linear
@@ -239,7 +239,7 @@ internal class Mistral3MultiModalProjector: Module {
         self._norm.wrappedValue = RMSNorm(dimensions: config.visionConfig.hiddenSize)
 
         // Patch merger
-        self.patchMerger = Mistral3PatchMerger(config)
+        self._patchMerger.wrappedValue = Mistral3PatchMerger(config)
 
         // Determine number of feature layers
         let numFeatureLayers = 1  // Simplified - could support array of layers
